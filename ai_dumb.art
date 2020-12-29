@@ -1,0 +1,93 @@
+fn piece_value(piece: Piece) = match piece {
+    Piece::Pawn => 1,
+    Piece::Bishop => 10,
+    Piece::Knight => 15,
+    Piece::Rook => 20,
+    Piece::Queen => 100,
+    Piece::King => 1000,
+};
+
+fn rate(board: &Board, color: Color) -> i32 {
+    let mut acc = 0;
+    for col in range(0, 8) {
+        for row in range(0, 8) {
+            if let BoardSquare::Occupied(square_color, piece) = board.squares(col)(row) {
+                let value = piece_value(piece);
+                let multiplier = if color_to_bool(color) == color_to_bool(square_color) { 1 } else { -1 };
+                acc = acc + value * multiplier;
+            }
+        }
+    }
+    return(acc)
+}
+
+fn find_best_move(state: GameState, player_pov: Color, depth: i32) -> Option[(Move, i32)] {
+    let mut possible_moves = 0;
+
+    let mut best_score = 0;
+    let mut best_move: Move = undef[Move]();
+
+    // Number of moves with the current same score
+    let mut same_score = 0;
+
+    enumerate_legal_moves(state, false, |move, _| {
+        let next_state = GameState {
+            turn = state.turn + 1,
+            color_to_play = other_color(state.color_to_play),
+            board = apply_move(state.board, state.color_to_play, move)
+        };
+
+        let score = if depth == 0 {
+            rate(next_state.board, player_pov)
+        } else {
+            if let Option[(Move, i32)]::Some(move, score_) = find_best_move(next_state, player_pov, depth - 1) {
+                score_
+            } else { return () }
+        };
+
+        if possible_moves == 0 {
+            best_move = move;
+            best_score = score;
+                same_score = 1;
+        } else if best_score == score {
+            same_score++;
+            // When finding another move with the same score, have a 1 chance in N of picking that one
+            if rand() % (same_score + 1) == 0 {
+                best_move = move;
+            }
+        }
+
+        if color_to_bool(player_pov) == color_to_bool(state.color_to_play) {
+            if score > best_score {
+                best_move = move;
+                best_score = score;
+                same_score = 1;
+            }
+        } else {
+            if score < best_score {
+                best_move = move;
+                best_score = score;
+                same_score = 1;
+            }
+        }
+        possible_moves++;
+    });
+
+    if possible_moves == 0 {
+        Option[(Move, i32)]::None
+    } else {
+        Option[(Move, i32)]::Some(best_move, best_score)
+    }
+}
+
+#[export]
+fn play_a_dumb_move(game: &mut GameState) -> Option[Move] {
+    if let Option[(Move, i32)]::Some(move_to_play, _) = find_best_move(*game, game.color_to_play, 3) {
+        game.board = apply_move(game.board, game.color_to_play, move_to_play);
+        game.color_to_play = other_color(game.color_to_play);
+        game.turn++;
+        Option[Move]::Some(move_to_play)
+    } else {
+        Option[Move]::None
+    }
+}

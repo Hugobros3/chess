@@ -1,0 +1,38 @@
+#[export]
+fn play_a_random_move(game: &mut GameState) -> Option[Move] {
+    let mut possible_moves = 0;
+    let mut considered_moves = 0;
+    enumerate_legal_moves(game, false, |move, _| {
+        possible_moves++;
+        considered_moves++;
+    });
+
+    if possible_moves == 0 {
+        return (Option[Move]::None)
+    }
+
+    let random = rand() % possible_moves;
+
+    let mut move_to_play: Move = undef[Move]();
+    let mut i = 0;
+    let mut b = false;
+    enumerate_legal_moves(game, false, |move, _| {
+            if random == i {
+                move_to_play = move;
+                b = true;
+            }
+            i++;
+        });
+
+    if !b {
+        illegal_state(3);
+    }
+
+    //print_nbr(possible_moves);
+    //print_nbr(considered_moves);
+
+    game.board = apply_move(game.board, game.color_to_play, move_to_play);
+    game.color_to_play = other_color(game.color_to_play);
+    game.turn++;
+    return (Option[Move]::Some(move_to_play))
+}

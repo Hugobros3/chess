@@ -330,6 +330,9 @@ fn is_king_in_check(game: &GameState, color: Color) -> bool {
 }
 
 #[export]
+fn is_player_in_check(game: &GameState) = is_king_in_check(game, game.color_to_play);
+
+#[export]
 fn is_checkmate(game: &GameState) -> bool {
     let captured_return = return;
     enumerate_legal_moves(game, false, | move, _ | {
@@ -345,6 +348,45 @@ fn is_checkmate(game: &GameState) -> bool {
     });
 
     true
+}
+
+#[export]
+fn only_kings_remain(game: &GameState) -> bool {
+    for col in range(0, 8) {
+        for row in range(0, 8) {
+            match game.board.squares(col)(row) {
+                BoardSquare::Occupied(square_color, piece) => {
+                    if let Piece::King = piece { } else { return(false) }
+                },
+                _ => {}
+            }
+        }
+    }
+    true
+}
+
+#[export]
+fn apply_move(old_board: &Board, to_play: Color, move: Move) -> Board {
+    let mut squares = old_board.squares;
+    match move {
+        Move::MovePiece { from = from, to = to } => {
+            let og_piece = *index(&mut squares, from);
+            *index(&mut squares, from) = BoardSquare::Empty;
+            *index(&mut squares, to) = og_piece;
+        },
+        Move::TakePiece { from = from, to = to, taken_piece = taken_piece } => {
+            let og_piece = *index(&mut squares, from);
+            *index(&mut squares, from) = BoardSquare::Empty;
+            *index(&mut squares, to) = og_piece;
+        },
+        Move::Promote { from = from, to = to, to_what = to_what } => {
+            *index(&mut squares, from) = BoardSquare::Empty;
+            *index(&mut squares, to) = BoardSquare::Occupied(to_play, to_what);
+        }
+    }
+    Board {
+        squares = squares
+    }
 }
 
 fn new_board() -> Board {
@@ -398,69 +440,6 @@ fn new_game() = GameState {
     color_to_play = Color::White,
     board = new_board()
 };
-
-#[export]
-fn apply_move(old_board: &Board, to_play: Color, move: Move) -> Board {
-    let mut squares = old_board.squares;
-    match move {
-        Move::MovePiece { from = from, to = to } => {
-            let og_piece = *index(&mut squares, from);
-            *index(&mut squares, from) = BoardSquare::Empty;
-            *index(&mut squares, to) = og_piece;
-        },
-        Move::TakePiece { from = from, to = to, taken_piece = taken_piece } => {
-            let og_piece = *index(&mut squares, from);
-            *index(&mut squares, from) = BoardSquare::Empty;
-            *index(&mut squares, to) = og_piece;
-        },
-        Move::Promote { from = from, to = to, to_what = to_what } => {
-            *index(&mut squares, from) = BoardSquare::Empty;
-            *index(&mut squares, to) = BoardSquare::Occupied(to_play, to_what);
-        }
-    }
-    Board {
-        squares = squares
-    }
-}
-
-#[export]
-fn play_a_random_move(game: &mut GameState) -> Option[Move] {
-    let mut possible_moves = 0;
-    let mut considered_moves = 0;
-    enumerate_legal_moves(game, false, |move, _| {
-        possible_moves++;
-        considered_moves++;
-    });
-
-    if possible_moves == 0 {
-        return (Option[Move]::None)
-    }
-
-    let random = rand() % possible_moves;
-
-    let mut move_to_play: Move = undef[Move]();
-    let mut i = 0;
-    let mut b = false;
-    enumerate_legal_moves(game, false, |move, _| {
-            if random == i {
-                move_to_play = move;
-                b = true;
-            }
-            i++;
-        });
-
-    if !b {
-        illegal_state(3);
-    }
-
-    //print_nbr(possible_moves);
-    //print_nbr(considered_moves);
-
-    game.board = apply_move(game.board, game.color_to_play, move_to_play);
-    game.color_to_play = other_color(game.color_to_play);
-    game.turn++;
-    return (Option[Move]::Some(move_to_play))
-}
 
 // issues:
 // enum == enum
