@@ -1,0 +1,467 @@
+#[import(cc="C")] fn rand() -> i32;
+#[import(cc="C")] fn print_nbr(i32) -> ();
+#[import(cc="C")] fn illegal_state(i32) -> ();
+#[import(cc="C")] fn debug_print_move(move: &Move) -> ();
+#[export] fn debug_print_move2(move: Move) -> () {
+    /*match move {
+        Move::MovePiece { from = from, to = to } => {
+            print_nbr(from.column);
+            print_nbr(from.row);
+            print_nbr(to.column);
+            print_nbr(to.row);
+        },
+        Move::TakePiece { from = from, to = to, taken_piece = taken_piece } => {
+        },
+        Move::Promote   { from = from, to = to, to_what = to_what } => {
+        }
+    }
+    debug_print_move(&move);*/
+}
+
+enum Option[T] {
+    Some(T),
+    None
+}
+
+enum Piece {
+    Pawn,
+    Bishop,
+    Knight,
+    Rook,
+    Queen,
+    King
+}
+
+enum Color {
+    Black,
+    White
+}
+
+// Helpers
+fn color_to_bool(color: Color) = if let Color::Black = color { false } else { true };
+fn other_color(color: Color) = if color_to_bool(color) { Color::Black } else { Color::White };
+
+struct Pos {
+    column: i32, // a b c d e f g h
+    row: i32 // 1 2 3 4 5 6 7 8
+}
+
+fn offset(pos: Pos, dx: i32, dy: i32) = Pos {
+    column = pos.column + dx,
+    row = pos.row + dy
+};
+fn is_pos_valid(pos: Pos) =
+    pos.column >= 0 &&
+    pos.row    >= 0 &&
+    pos.column  < 8 &&
+    pos.row     < 8 ;
+fn are_pos_equal(a: Pos, b: Pos) = a.column == b.column && a.row == b.row;
+
+fn assert_pos_valid(pos: Pos, diag: i32) {
+    if !is_pos_valid(pos) {
+        print_nbr(pos.column);
+        print_nbr(pos.row);
+        illegal_state(diag);
+    }
+}
+
+enum BoardSquare {
+    Empty,
+    Occupied(Color, Piece)
+}
+
+struct Board {
+    squares: [[BoardSquare * 8] * 8]
+}
+fn index(squares: &mut[[BoardSquare * 8] * 8], pos: Pos) -> &mut BoardSquare {
+    assert_pos_valid(pos, -1);
+    &mut squares(pos.column)(pos.row)
+}
+
+struct GameState {
+    turn: i32,
+    color_to_play: Color,
+    board: Board
+}
+
+#[export]
+fn is_occupied(board: &Board, pos: Pos) = match board.squares(pos.column)(pos.row) {
+    BoardSquare::Empty => false,
+    _ => true
+};
+
+#[export]
+fn is_takeable(board: &Board, pos: Pos, by: Color) = match board.squares(pos.column)(pos.row) {
+    BoardSquare::Empty => (false, Piece::King),
+    BoardSquare::Occupied(color, piece) => {
+        // Can't compare enum values ...
+        let color_i = if let Color::Black = color { 0 } else { 1 };
+        let by_i    = if let Color::Black = by    { 0 } else { 1 };
+        (by_i != color_i, piece)
+    }
+};
+
+enum Move {
+    MovePiece { from: Pos, to: Pos },
+    TakePiece { from: Pos, to: Pos, taken_piece: Piece },
+    Promote { from: Pos, to: Pos, to_what: Piece }
+}
+
+// Does not take into account side effects such as checking
+fn enumerate_moves_for_piece(game: &GameState, pos: Pos, visitor: fn(Move) -> ()) {
+    assert_pos_valid(pos, 0);
+    //print_nbr(pos.column);
+    //print_nbr(pos.row);
+    let royal_directions = [
+        ( 0,  1),
+        ( 1,  1),
+        ( 1,  0),
+        ( 1, -1),
+        ( 0, -1),
+        (-1, -1),
+        (-1,  0),
+        (-1,  1),
+    ];
+    match game.board.squares(pos.column)(pos.row) {
+        BoardSquare::Occupied(color, piece) => {
+            // Tries moving to a position including taking a piece, returns false is neither is possible
+            let try_move_or_take = | new_pos: Pos | {
+                assert_pos_valid(pos, 0);
+                assert_pos_valid(new_pos, 1);
+                if !is_occupied(game.board, new_pos) {
+                    visitor(Move::MovePiece { from = pos, to = new_pos });
+                    true
+                } else {
+                    let (can_take, take_what) = is_takeable(game.board, new_pos, color);
+                    if can_take {
+                        visitor(Move::TakePiece { from = pos, to = new_pos, taken_piece = take_what });
+                        true
+                    }
+                    else {
+                        false
+                    }
+                }
+            };
+
+            match piece {
+                Piece::Pawn => {
+                    let direction = if let Color::Black = color { -1 } else { 1 };
+
+                    let front = offset(pos, 0, direction);
+                    if is_pos_valid(front) && !is_occupied(game.board, front) {
+                        assert_pos_valid(front, 2);
+                        visitor(Move::MovePiece { from = pos, to = front });
+
+                        // TODO promotion
+
+                        let initial_row = if let Color::Black = color { 6 } else { 1 };
+                        let double_front = offset(pos, 0, direction * 2);
+                        if pos.row == initial_row && !is_occupied(game.board, double_front) {
+                            assert_pos_valid(double_front, 3);
+                            visitor(Move::MovePiece { from = pos, to = double_front });
+                        }
+                    }
+
+                    let captures_pos = [offset(pos, 1, direction), offset(pos, -1, direction)];
+                    for i in range(0, 2) {
+                        let capture_pos = captures_pos(i);
+                        if is_pos_valid(capture_pos) {
+                            let (can_take, take_what) = is_takeable(game.board, capture_pos, color);
+                            if can_take {
+                                visitor(Move::TakePiece { from = pos, to = capture_pos, taken_piece = take_what });
+                            }
+                        }
+                    }
+                    // TODO en passant (I don't know that rule tbh)
+                },
+                Piece::Bishop => {
+                    let bishop_directions = [
+                        ( 1,  1),
+                        ( 1, -1),
+                        (-1, -1),
+                        (-1,  1),
+                    ];
+                    for direction in range(0, 4) {
+                        let (dx, dy) = bishop_directions(direction);
+                        for delta in range(1, 7) {
+                            let new_pos = offset(pos, dx * delta, dy * delta);
+                            if !is_pos_valid(new_pos) { break() }
+                            try_move_or_take(new_pos);
+                            if is_occupied(game.board, new_pos) { break() }
+                        }
+                    }
+                },
+                Piece::Knight => {
+                    let offsets = [
+                        ( 1,  2), ( 2,  1),
+                        (-1, -2), ( 2,  1),
+                        ( 1,  2), (-2, -1),
+                        (-1, -2), (-2, -1),
+                    ];
+                    for i in range(0, 8) {
+                        let (dx, dy) = offsets(i);
+                        let new_pos = offset(pos, dx, dy);
+                        if !is_pos_valid(new_pos) { continue() }
+                        try_move_or_take(new_pos);
+                    }
+                },
+                Piece::Rook => {
+                    let rook_directions = [
+                        ( 0,  1),
+                        ( 1,  0),
+                        ( 0, -1),
+                        (-1,  0),
+                    ];
+                    for direction in range(0, 4) {
+                        let (dx, dy) = rook_directions(direction);
+                        for delta in range(1, 7) {
+                            let new_pos = offset(pos, dx * delta, dy * delta);
+                            if !is_pos_valid(new_pos) { break() }
+                            try_move_or_take(new_pos);
+                            if is_occupied(game.board, new_pos) { break() }
+                        }
+                    }
+                },
+                Piece::Queen => {
+                    for direction in range(0, 8) {
+                        let (dx, dy) = royal_directions(direction);
+                        for delta in range(1, 7) {
+                            let new_pos = offset(pos, dx * delta, dy * delta);
+                            if !is_pos_valid(new_pos) { break() }
+                            try_move_or_take(new_pos);
+                            if is_occupied(game.board, new_pos) { break() }
+                        }
+                    }
+                },
+                Piece::King => {
+                    for direction in range(0, 8) {
+                        let (dx, dy) = royal_directions(direction);
+                        let new_pos = offset(pos, dx, dy);
+                        if !is_pos_valid(new_pos) { continue() }
+                        try_move_or_take(new_pos);
+                    }
+                    // TODO king's leap
+                },
+                // _ => {}
+            }
+        },
+        _ => {}
+    }
+}
+
+fn enumerate_legal_moves(game: &GameState, allow_self_checking: bool, visitor: fn(Move, bool) -> ()) -> () {
+    find_pieces(game.board, game.color_to_play, |pos| {
+        enumerate_moves_for_piece(game, pos, |move| {
+            let mut self_checking = false;
+            if !allow_self_checking {
+                let next_state = GameState {
+                    turn = game.turn + 1,
+                    color_to_play = other_color(game.color_to_play),
+                    board = apply_move(game.board, game.color_to_play, move)
+                };
+
+                debug_print_move2(move);
+                self_checking = is_king_in_check(next_state, game.color_to_play);
+            }
+            if !self_checking || allow_self_checking {
+                visitor(move, self_checking);
+            }
+        });
+    });
+}
+
+fn find_pieces(board: &Board, color: Color, visitor: fn(Pos) -> ()) {
+    for col in range(0, 8) {
+        for row in range(0, 8) {
+            if let BoardSquare::Occupied(square_color, _) = board.squares(col)(row) {
+                if color_to_bool(color) == color_to_bool(square_color) {
+                    let pos = Pos { column = col, row = row };
+                    visitor(pos);
+                }
+            }
+        }
+    }
+}
+
+fn find_king(board: &Board, color: Color) -> Pos {
+    for col in range(0, 8) {
+        for row in range(0, 8) {
+            if let BoardSquare::Occupied(square_color, piece) = board.squares(col)(row) {
+                if let Piece::King = piece {
+                    if color_to_bool(color) == color_to_bool(square_color) {
+                        let pos = Pos { column = col, row = row };
+                        return (pos)
+                    }
+                }
+            }
+        }
+    }
+    illegal_state(-1);
+    undef[Pos]()
+}
+
+#[export]
+fn is_king_in_check(game: &GameState, color: Color) -> bool {
+    let king_pos = find_king(game.board, color);
+    let adversary = other_color(color);
+
+    // For checking we assume the adversary gets to play another move immediately
+    let next_state = GameState {
+        turn = game.turn + 1,
+        color_to_play = adversary,
+        board = game.board,
+    };
+
+    let captured_return = return;
+
+    enumerate_legal_moves(next_state, true, | move, adversary_would_check_themselves | {
+        match move {
+            Move::TakePiece { from = from, to = to, taken_piece = taken_pice } => {
+                if are_pos_equal(to, king_pos) {
+                    // oh crap
+                    captured_return (true)
+                }
+            },
+            _ => {}
+        }
+    });
+
+    false
+}
+
+#[export]
+fn is_checkmate(game: &GameState) -> bool {
+    let captured_return = return;
+    enumerate_legal_moves(game, false, | move, _ | {
+        let next_state = GameState {
+            turn = game.turn + 1,
+            color_to_play = other_color(game.color_to_play),
+            board = apply_move(game.board, game.color_to_play, move)
+        };
+
+        if !is_king_in_check(next_state, game.color_to_play) {
+            captured_return (false)
+        }
+    });
+
+    true
+}
+
+fn new_board() -> Board {
+    let mut squares = [[BoardSquare::Empty ; 8] ; 8];
+    let black_king_row = 7;
+    let black_pawn_row = 6;
+    let white_pawn_row = 1;
+    let white_king_row = 0;
+    // Pawns
+    for column in range(0, 8) {
+        squares(column)(black_pawn_row) = BoardSquare::Occupied(Color::Black, Piece::Pawn);
+        squares(column)(white_pawn_row) = BoardSquare::Occupied(Color::White, Piece::Pawn);
+    }
+    // Kings
+    let king_column = 3;
+    squares(king_column)(black_king_row) = BoardSquare::Occupied(Color::Black, Piece::King);
+    squares(king_column)(white_king_row) = BoardSquare::Occupied(Color::White, Piece::King);
+    // Queens
+    let queen_column = 4;
+    squares(queen_column)(black_king_row) = BoardSquare::Occupied(Color::Black, Piece::Queen);
+    squares(queen_column)(white_king_row) = BoardSquare::Occupied(Color::White, Piece::Queen);
+    // Rooks
+    let rooks_columns = [0, 7];
+    for i in range(0, 2) {
+        let column = rooks_columns(i);
+        squares(column)(black_king_row) = BoardSquare::Occupied(Color::Black, Piece::Rook);
+        squares(column)(white_king_row) = BoardSquare::Occupied(Color::White, Piece::Rook);
+    }
+    // Knights
+    let knights_columns = [1, 6];
+    for i in range(0, 2) {
+        let column = knights_columns(i);
+        squares(column)(black_king_row) = BoardSquare::Occupied(Color::Black, Piece::Knight);
+        squares(column)(white_king_row) = BoardSquare::Occupied(Color::White, Piece::Knight);
+    }
+    // Bishops
+    let bishop_columns = [2, 5];
+    for i in range(0, 2) {
+        let column = bishop_columns(i);
+        squares(column)(black_king_row) = BoardSquare::Occupied(Color::Black, Piece::Bishop);
+        squares(column)(white_king_row) = BoardSquare::Occupied(Color::White, Piece::Bishop);
+    }
+    Board {
+        squares = squares
+    }
+}
+
+#[export]
+fn new_game() = GameState {
+    turn = 0,
+    color_to_play = Color::White,
+    board = new_board()
+};
+
+#[export]
+fn apply_move(old_board: &Board, to_play: Color, move: Move) -> Board {
+    let mut squares = old_board.squares;
+    match move {
+        Move::MovePiece { from = from, to = to } => {
+            let og_piece = *index(&mut squares, from);
+            *index(&mut squares, from) = BoardSquare::Empty;
+            *index(&mut squares, to) = og_piece;
+        },
+        Move::TakePiece { from = from, to = to, taken_piece = taken_piece } => {
+            let og_piece = *index(&mut squares, from);
+            *index(&mut squares, from) = BoardSquare::Empty;
+            *index(&mut squares, to) = og_piece;
+        },
+        Move::Promote { from = from, to = to, to_what = to_what } => {
+            *index(&mut squares, from) = BoardSquare::Empty;
+            *index(&mut squares, to) = BoardSquare::Occupied(to_play, to_what);
+        }
+    }
+    Board {
+        squares = squares
+    }
+}
+
+#[export]
+fn play_a_random_move(game: &mut GameState) -> Option[Move] {
+    let mut possible_moves = 0;
+    let mut considered_moves = 0;
+    enumerate_legal_moves(game, false, |move, _| {
+        possible_moves++;
+        considered_moves++;
+    });
+
+    if possible_moves == 0 {
+        return (Option[Move]::None)
+    }
+
+    let random = rand() % possible_moves;
+
+    let mut move_to_play: Move = undef[Move]();
+    let mut i = 0;
+    let mut b = false;
+    enumerate_legal_moves(game, false, |move, _| {
+            if random == i {
+                move_to_play = move;
+                b = true;
+            }
+            i++;
+        });
+
+    if !b {
+        illegal_state(3);
+    }
+
+    //print_nbr(possible_moves);
+    //print_nbr(considered_moves);
+
+    game.board = apply_move(game.board, game.color_to_play, move_to_play);
+    game.color_to_play = other_color(game.color_to_play);
+    game.turn++;
+    return (Option[Move]::Some(move_to_play))
+}
+
+// issues:
+// enum == enum
+// for x in [1, 2, 3]
