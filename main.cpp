@@ -26,7 +26,7 @@ extern "C" {
     }
 
     void debug_print_move(Move* move) {
-        switch (move->tag) {
+        /*switch (move->tag) {
             case 0: {
                 MovePiece mp = move->data.MovePiece;
                 if (mp.from.column > 8)
@@ -47,7 +47,7 @@ extern "C" {
             default: {
                 printf("??? move\n");
             }
-        }
+        }*/
     }
 }
 

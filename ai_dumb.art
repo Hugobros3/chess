@@ -54,7 +54,7 @@ fn find_best_move(state: GameState, player_pov: Color, depth: i32) -> Option[(Mo
         if possible_moves == 0 {
             best_move = move;
             best_score = score;
-                same_score = 1;
+            same_score = 1;
         } else if best_score == score {
             same_score++;
             // When finding another move with the same score, have a 1 chance in N of picking that one

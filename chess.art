@@ -3,19 +3,7 @@
 #[import(cc="C")] fn illegal_state(i32) -> ();
 #[import(cc="C")] fn debug_print_move(move: &Move) -> ();
 #[export] fn debug_print_move2(move: Move) -> () {
-    /*match move {
-        Move::MovePiece { from = from, to = to } => {
-            print_nbr(from.column);
-            print_nbr(from.row);
-            print_nbr(to.column);
-            print_nbr(to.row);
-        },
-        Move::TakePiece { from = from, to = to, taken_piece = taken_piece } => {
-        },
-        Move::Promote   { from = from, to = to, to_what = to_what } => {
-        }
-    }
-    debug_print_move(&move);*/
+    //debug_print_move(&move);
 }
 
 enum Option[T] {
@@ -102,11 +90,26 @@ fn is_takeable(board: &Board, pos: Pos, by: Color) = match board.squares(pos.col
     }
 };
 
-enum Move {
-    MovePiece { from: Pos, to: Pos },
-    TakePiece { from: Pos, to: Pos, taken_piece: Piece },
-    Promote { from: Pos, to: Pos, to_what: Piece }
+struct Move {
+    from: Pos,
+    to: Pos,
+    capturing: Option[Piece],
+    promoting: Option[Piece]
 }
+
+fn move_piece(from: Pos, to: Pos) = Move {
+    from = from,
+    to = to,
+    capturing = Option[Piece]::None,
+    promoting = Option[Piece]::None,
+};
+
+fn capture(from: Pos, to: Pos, what: Piece) = Move {
+    from = from,
+    to = to,
+    capturing = Option[Piece]::Some(what),
+    promoting = Option[Piece]::None,
+};
 
 // Does not take into account side effects such as checking
 fn enumerate_moves_for_piece(game: &GameState, pos: Pos, visitor: fn(Move) -> ()) {
@@ -130,12 +133,12 @@ fn enumerate_moves_for_piece(game: &GameState, pos: Pos, visitor: fn(Move) -> ()
                 assert_pos_valid(pos, 0);
                 assert_pos_valid(new_pos, 1);
                 if !is_occupied(game.board, new_pos) {
-                    visitor(Move::MovePiece { from = pos, to = new_pos });
+                    visitor(move_piece(pos, new_pos));
                     true
                 } else {
                     let (can_take, take_what) = is_takeable(game.board, new_pos, color);
                     if can_take {
-                        visitor(Move::TakePiece { from = pos, to = new_pos, taken_piece = take_what });
+                        visitor(capture(pos, new_pos, take_what));
                         true
                     }
                     else {
@@ -146,20 +149,37 @@ fn enumerate_moves_for_piece(game: &GameState, pos: Pos, visitor: fn(Move) -> ()
 
             match piece {
                 Piece::Pawn => {
+                    let promotion_row = if let Color::Black = color { 0 } else { 7 };
+                    let visit_and_attempt_capture = | move: Move | {
+                        if move.to.row == promotion_row {
+                            let possible_promotions = [
+                                Piece::Knight,
+                                Piece::Rook,
+                                Piece::Bishop,
+                                Piece::Queen,
+                            ];
+                            for i in range(0, 4) {
+                                let mut modified_move = move;
+                                modified_move.promoting = Option[Piece]::Some(possible_promotions(i));
+                                visitor(move);
+                            }
+                        } else {
+                            visitor(move);
+                        }
+                    };
+
                     let direction = if let Color::Black = color { -1 } else { 1 };
 
                     let front = offset(pos, 0, direction);
                     if is_pos_valid(front) && !is_occupied(game.board, front) {
                         assert_pos_valid(front, 2);
-                        visitor(Move::MovePiece { from = pos, to = front });
-
-                        // TODO promotion
+                        visit_and_attempt_capture(move_piece(pos, front));
 
                         let initial_row = if let Color::Black = color { 6 } else { 1 };
                         let double_front = offset(pos, 0, direction * 2);
                         if pos.row == initial_row && !is_occupied(game.board, double_front) {
                             assert_pos_valid(double_front, 3);
-                            visitor(Move::MovePiece { from = pos, to = double_front });
+                            visit_and_attempt_capture(move_piece(pos, double_front));
                         }
                     }
 
@@ -169,7 +189,7 @@ fn enumerate_moves_for_piece(game: &GameState, pos: Pos, visitor: fn(Move) -> ()
                         if is_pos_valid(capture_pos) {
                             let (can_take, take_what) = is_takeable(game.board, capture_pos, color);
                             if can_take {
-                                visitor(Move::TakePiece { from = pos, to = capture_pos, taken_piece = take_what });
+                                visit_and_attempt_capture(capture(pos, capture_pos, take_what));
                             }
                         }
                     }
@@ -316,14 +336,11 @@ fn is_king_in_check(game: &GameState, color: Color) -> bool {
     let captured_return = return;
 
     enumerate_legal_moves(next_state, true, | move, adversary_would_check_themselves | {
-        match move {
-            Move::TakePiece { from = from, to = to, taken_piece = taken_pice } => {
-                if are_pos_equal(to, king_pos) {
-                    // oh crap
-                    captured_return (true)
-                }
-            },
-            _ => {}
+        if let Option[Piece]::Some(taken_piece) = move.capturing {
+            if are_pos_equal(move.to, king_pos) {
+                // oh crap
+                captured_return (true)
+            }
         }
     });
 
@@ -369,22 +386,15 @@ fn only_kings_remain(game: &GameState) -> bool {
 #[export]
 fn apply_move(old_board: &Board, to_play: Color, move: Move) -> Board {
     let mut squares = old_board.squares;
-    match move {
-        Move::MovePiece { from = from, to = to } => {
-            let og_piece = *index(&mut squares, from);
-            *index(&mut squares, from) = BoardSquare::Empty;
-            *index(&mut squares, to) = og_piece;
-        },
-        Move::TakePiece { from = from, to = to, taken_piece = taken_piece } => {
-            let og_piece = *index(&mut squares, from);
-            *index(&mut squares, from) = BoardSquare::Empty;
-            *index(&mut squares, to) = og_piece;
-        },
-        Move::Promote { from = from, to = to, to_what = to_what } => {
-            *index(&mut squares, from) = BoardSquare::Empty;
-            *index(&mut squares, to) = BoardSquare::Occupied(to_play, to_what);
-        }
+
+    let og_square = *index(&mut squares, move.from);
+    *index(&mut squares, move.from) = BoardSquare::Empty;
+    if let Option[Piece]::Some(to_what) = move.promoting {
+        *index(&mut squares, move.to) = BoardSquare::Occupied(to_play, to_what);
+    } else {
+        *index(&mut squares, move.to) = og_square;
     }
+
     Board {
         squares = squares
     }
