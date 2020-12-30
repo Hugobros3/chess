@@ -40,6 +40,7 @@ enum Color {
 // Helpers
 fn color_to_bool(color: Color) = if let Color::Black = color { false } else { true };
 fn other_color(color: Color) = if color_to_bool(color) { Color::Black } else { Color::White };
+fn compare_color(a: Color, b: Color) = color_to_bool(a) == color_to_bool(b);
 
 struct Pos {
     column: i32, // a b c d e f g h

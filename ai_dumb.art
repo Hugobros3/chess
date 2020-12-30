@@ -42,7 +42,13 @@ fn find_best_move(state: GameState, player_pov: Color, depth: i32) -> Option[(Mo
         } else {
             if let Option[(Move, i32)]::Some(move, score_) = find_best_move(next_state, player_pov, depth - 1) {
                 score_
-            } else { return () }
+            } else {
+                if compare_color(player_pov, next_state.color_to_play) {
+                    -10000 // We get checkmated
+                } else {
+                    10000 // We checkmate
+                }
+            }
         };
 
         if possible_moves == 0 {
